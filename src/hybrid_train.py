@@ -1,10 +1,10 @@
+from regex import T
 import torch
 import torch.nn.functional as F
 from accelerate import Accelerator
 from tqdm.auto import tqdm
 from transformers import AutoTokenizer, CLIPTextModel
-from img2img_turbo.cyclegan_turbo import CycleGAN_Turbo
-from img2img_turbo.pix2pix_turbo import Pix2Pix_Turbo
+from hybrid_model import Pix2Pix_Turbo
 from hybrid_dataloader import HybridDataset
 from torchvision import transforms
 import lpips
@@ -28,17 +28,30 @@ def train_hybrid_model(args):
     )
 
     # Initialize models
-    model = CycleGAN_Turbo()  # 使用CycleGAN的网络结构，因为它包含了双向转换能力
+    model = Pix2Pix_Turbo(
+        pretrained_name=args.pretrained_model_name_or_path,
+        pretrained_path=args.pretrained_model_path,
+        lora_rank_unet=args.lora_rank_unet,
+        lora_rank_vae=args.lora_rank_vae,
+    ).to(args.device)
+    model.set_train()
     
     # Initialize discriminators
-    # 这里应该使用vision_aided_loss的判别器，待修改。
+    # 这里应该使用 vision_aided_loss 的判别器，待修改。
     if args.gan_disc_type == "vagan_clip":
-        net_disc_a = build_vagan_disc()
-        net_disc_b = build_vagan_disc()
+        import vision_aided_loss
+        net_disc = vision_aided_loss.Discriminator(cv_type='clip', loss_type=args.gan_loss_type, device="cuda")
+        net_disc_a = net_disc
+        net_disc_b = net_disc
+        net_disc_a.cv_ensemble.requires_grad_(False)
+        net_disc_b.cv_ensemble.requires_grad_(False)
+        net_disc_a.train()
+        net_disc_b.train()
     
     # Initialize loss networks
     net_lpips = lpips.LPIPS(net='vgg').cuda()
     net_clip, _ = clip.load("ViT-B/32", device="cuda")
+
     net_lpips.requires_grad_(False)
     net_clip.requires_grad_(False)
     net_clip.eval()

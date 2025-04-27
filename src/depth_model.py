@@ -1,4 +1,3 @@
-# using pix2pix-turbo as generator.
 import os
 import requests
 import sys
@@ -6,25 +5,15 @@ import copy
 from tqdm import tqdm
 import torch
 from transformers import AutoTokenizer, CLIPTextModel
-from diffusers import AutoencoderKL, UNet2DConditionModel
+from diffusers import AutoencoderKL # removed UNet2DConditionModel
 from diffusers.utils.peft_utils import set_weights_and_activate_adapters
 from peft import LoraConfig
 p = "src/"
 sys.path.append(p)
 from model import make_1step_sched, my_vae_encoder_fwd, my_vae_decoder_fwd
 
-
-class TwinConv(torch.nn.Module):
-    def __init__(self, convin_pretrained, convin_curr):
-        super(TwinConv, self).__init__()
-        self.conv_in_pretrained = copy.deepcopy(convin_pretrained)
-        self.conv_in_curr = copy.deepcopy(convin_curr)
-        self.r = None
-
-    def forward(self, x):
-        x1 = self.conv_in_pretrained(x).detach()
-        x2 = self.conv_in_curr(x)
-        return x1 * (1 - self.r) + x2 * (self.r)
+from attention_inject.DepthInjectedUNet import UNetWithDepth
+from attention_inject.DepthAttnProcessor import DepthAttnProcessor
 
 
 class Pix2Pix_Turbo(torch.nn.Module):
@@ -34,20 +23,33 @@ class Pix2Pix_Turbo(torch.nn.Module):
         self.text_encoder = CLIPTextModel.from_pretrained("stabilityai/sd-turbo", subfolder="text_encoder").cuda()
         self.sched = make_1step_sched()
 
+        # VAE初始化及跳跃连接
         vae = AutoencoderKL.from_pretrained("stabilityai/sd-turbo", subfolder="vae")
         vae.encoder.forward = my_vae_encoder_fwd.__get__(vae.encoder, vae.encoder.__class__)
-        # 要计算PatchNCE类的loss，需要从encoder上面引出来各层当前的特征信息。这个特征信息还是tmResNet中间取的部分信息，这我怎么分块取VAE的？
         vae.decoder.forward = my_vae_decoder_fwd.__get__(vae.decoder, vae.decoder.__class__)
-        # add the skip connection convs
-        vae.decoder.skip_conv_1 = torch.nn.Conv2d(512, 512, kernel_size=(1, 1), stride=(1, 1), bias=False).cuda()
-        vae.decoder.skip_conv_2 = torch.nn.Conv2d(256, 512, kernel_size=(1, 1), stride=(1, 1), bias=False).cuda()
-        vae.decoder.skip_conv_3 = torch.nn.Conv2d(128, 512, kernel_size=(1, 1), stride=(1, 1), bias=False).cuda()
-        vae.decoder.skip_conv_4 = torch.nn.Conv2d(128, 256, kernel_size=(1, 1), stride=(1, 1), bias=False).cuda()
+        vae.decoder.skip_conv_1 = torch.nn.Conv2d(512, 512, 1, bias=False).cuda()
+        vae.decoder.skip_conv_2 = torch.nn.Conv2d(256, 512, 1, bias=False).cuda()
+        vae.decoder.skip_conv_3 = torch.nn.Conv2d(128, 512, 1, bias=False).cuda()
+        vae.decoder.skip_conv_4 = torch.nn.Conv2d(128, 256, 1, bias=False).cuda()
         vae.decoder.ignore_skip = False
-        unet = UNet2DConditionModel.from_pretrained("stabilityai/sd-turbo", subfolder="unet")
 
-        assert pretrained_name is None, "pretrained_name is not supported in this version"
+        # 初始化改为使用自定义UNetWithDepth
+        unet = UNetWithDepth.from_pretrained("stabilityai/sd-turbo", subfolder="unet")
 
+        # 替换上采样阶段AttentionProcessor为DepthAttnProcessor
+        # 假设DepthAttnProcessor的lambda_d和gamma_d可调
+        def is_upsample_processor(key: str) -> bool:
+            return "up_blocks" in key
+
+        new_processors = {}
+        for k, v in unet.attn_processors.items():
+            if is_upsample_processor(k):
+                new_processors[k] = DepthAttnProcessor(lambda_d=5.0, gamma_d=1.0)
+            else:
+                new_processors[k] = v
+        unet.set_attn_processor(new_processors)
+
+        # 加载预训练权重和LoRA，如果有的话
         if pretrained_path is not None:
             sd = torch.load(pretrained_path, map_location="cpu")
             unet_lora_config = LoraConfig(r=sd["rank_unet"], init_lora_weights="gaussian", target_modules=sd["unet_lora_target_modules"])
@@ -63,27 +65,25 @@ class Pix2Pix_Turbo(torch.nn.Module):
                 _sd_unet[k] = sd["state_dict_unet"][k]
             unet.load_state_dict(_sd_unet)
 
-        else:
+        elif pretrained_name is None and pretrained_path is None:
             print("Initializing model with random weights")
+            # 初始化跳跃连接权重
             torch.nn.init.constant_(vae.decoder.skip_conv_1.weight, 1e-5)
             torch.nn.init.constant_(vae.decoder.skip_conv_2.weight, 1e-5)
             torch.nn.init.constant_(vae.decoder.skip_conv_3.weight, 1e-5)
             torch.nn.init.constant_(vae.decoder.skip_conv_4.weight, 1e-5)
+
             target_modules_vae = ["conv1", "conv2", "conv_in", "conv_shortcut", "conv", "conv_out",
-                "skip_conv_1", "skip_conv_2", "skip_conv_3", "skip_conv_4",
-                "to_k", "to_q", "to_v", "to_out.0",
-            ]
-            vae_lora_config = LoraConfig(r=lora_rank_vae, init_lora_weights="gaussian",
-                target_modules=target_modules_vae)
+                                  "skip_conv_1", "skip_conv_2", "skip_conv_3", "skip_conv_4",
+                                  "to_k", "to_q", "to_v", "to_out.0"]
+            vae_lora_config = LoraConfig(r=lora_rank_vae, init_lora_weights="gaussian", target_modules=target_modules_vae)
             vae.add_adapter(vae_lora_config, adapter_name="vae_skip")
-            target_modules_unet = [
-                "to_k", "to_q", "to_v", "to_out.0", "conv", "conv1", "conv2", "conv_shortcut", "conv_out",
-                "proj_in", "proj_out", "ff.net.2", "ff.net.0.proj"
-            ]
-            unet_lora_config = LoraConfig(r=lora_rank_unet, init_lora_weights="gaussian",
-                target_modules=target_modules_unet
-            )
+
+            target_modules_unet = ["to_k", "to_q", "to_v", "to_out.0", "conv", "conv1", "conv2", "conv_shortcut", "conv_out",
+                                  "proj_in", "proj_out", "ff.net.2", "ff.net.0.proj"]
+            unet_lora_config = LoraConfig(r=lora_rank_unet, init_lora_weights="gaussian", target_modules=target_modules_unet)
             unet.add_adapter(unet_lora_config)
+
             self.lora_rank_unet = lora_rank_unet
             self.lora_rank_vae = lora_rank_vae
             self.target_modules_vae = target_modules_vae
@@ -92,9 +92,10 @@ class Pix2Pix_Turbo(torch.nn.Module):
         # unet.enable_xformers_memory_efficient_attention()
         unet.to("cuda")
         vae.to("cuda")
-        self.unet, self.vae = unet, vae
+        self.unet = unet
+        self.vae = vae
         self.vae.decoder.gamma = 1
-        self.timesteps = torch.tensor([999], device="cuda").long() # uses this to get a one-step diffusion model.
+        self.timesteps = torch.tensor([999], device="cuda").long()
         self.text_encoder.requires_grad_(False)
 
     def set_eval(self):
@@ -118,40 +119,53 @@ class Pix2Pix_Turbo(torch.nn.Module):
         self.vae.decoder.skip_conv_3.requires_grad_(True)
         self.vae.decoder.skip_conv_4.requires_grad_(True)
 
-    def forward(self, c_t, prompt=None, prompt_tokens=None, deterministic=True, r=1.0, noise_map=None):
-        # either the prompt or the prompt_tokens should be provided
+    def forward(self, c_t, prompt=None, prompt_tokens=None, 
+                depth_feat=None, depth_mask=None,           # 额外传入的深度特征和mask
+                deterministic=True, r=1.0, noise_map=None):
+        # 编码文本
         assert (prompt is None) != (prompt_tokens is None), "Either prompt or prompt_tokens should be provided"
-
         if prompt is not None:
-            # encode the text prompt
             caption_tokens = self.tokenizer(prompt, max_length=self.tokenizer.model_max_length,
                                             padding="max_length", truncation=True, return_tensors="pt").input_ids.cuda()
             caption_enc = self.text_encoder(caption_tokens)[0]
         else:
             caption_enc = self.text_encoder(prompt_tokens)[0]
+
+        
+        # 编码输入图像
+        encoded_control = self.vae.encode(c_t).latent_dist.sample() * self.vae.config.scaling_factor
+
         if deterministic:
-            encoded_control = self.vae.encode(c_t).latent_dist.sample() * self.vae.config.scaling_factor
-            model_pred = self.unet(encoded_control, self.timesteps, encoder_hidden_states=caption_enc,).sample
+            model_pred = self.unet(
+                encoded_control,
+                self.timesteps,
+                encoder_hidden_states=caption_enc,
+                depth_feat=depth_feat,
+                depth_mask=depth_mask,
+            ).sample
             x_denoised = self.sched.step(model_pred, self.timesteps, encoded_control, return_dict=True).prev_sample
             x_denoised = x_denoised.to(model_pred.dtype)
             self.vae.decoder.incoming_skip_acts = self.vae.encoder.current_down_blocks
             output_image = (self.vae.decode(x_denoised / self.vae.config.scaling_factor).sample).clamp(-1, 1)
         else:
-            # scale the lora weights based on the r value
-            # 注意r为1时即为不添加噪声。
             self.unet.set_adapters(["default"], weights=[r])
             set_weights_and_activate_adapters(self.vae, ["vae_skip"], [r])
-            encoded_control = self.vae.encode(c_t).latent_dist.sample() * self.vae.config.scaling_factor
-            # combine the input and noise
             unet_input = encoded_control * r + noise_map * (1 - r)
             self.unet.conv_in.r = r
-            unet_output = self.unet(unet_input, self.timesteps, encoder_hidden_states=caption_enc,).sample
+            unet_output = self.unet(
+                unet_input,
+                self.timesteps,
+                encoder_hidden_states=caption_enc,
+                depth_feat=depth_feat,
+                depth_mask=depth_mask,
+            ).sample
             self.unet.conv_in.r = None
             x_denoised = self.sched.step(unet_output, self.timesteps, unet_input, return_dict=True).prev_sample
             x_denoised = x_denoised.to(unet_output.dtype)
             self.vae.decoder.incoming_skip_acts = self.vae.encoder.current_down_blocks
             self.vae.decoder.gamma = r
             output_image = (self.vae.decode(x_denoised / self.vae.config.scaling_factor).sample).clamp(-1, 1)
+
         return output_image
 
     def save_model(self, outf):
