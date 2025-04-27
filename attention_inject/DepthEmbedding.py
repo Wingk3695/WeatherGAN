@@ -9,7 +9,7 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from ConvNeXt.convNeXt.convNext import ConvNeXt
 from einops import rearrange, repeat
-from util import *
+
 
 
 config = {
@@ -52,16 +52,35 @@ def get_embeddings_from_convNext(model, input_image):
     return embeddings
 
 def get_normalized_depth_map(depth_map):
-    """Normalize the depth map to the range [0, 1].
-    Args:
-        depth_map: depth map of shape (H, W)
-    Returns:
-        normalized_depth_map: normalized depth map of shape (H, W)
     """
-    min_val = np.min(depth_map)
-    max_val = np.max(depth_map)
-    normalized_depth_map = (depth_map - min_val) / (max_val - min_val + 1e-8)  # Avoid division by zero
-    return normalized_depth_map
+    depth_map: Tensor, shape (B, 3, H, W)
+    返回 shape: (B, H, W, 1), 归一化到[0, 1]
+    """
+
+    assert depth_map.ndim == 4, "Depth map should be a 4D tensor (B, C, H, W)"
+    assert depth_map.shape[1] == 3, "Depth map should have 3 channels"
+    if isinstance(depth_map, torch.Tensor):
+        # 转成单通道
+        depth_gray = depth_map.mean(dim=1, keepdim=True)  # (B,1,H,W)
+        min_val = depth_gray.amin(dim=[1,2,3], keepdim=True)  # (B,1,1,1)
+        max_val = depth_gray.amax(dim=[1,2,3], keepdim=True)  # (B,1,1,1)
+        norm_depth = (depth_gray - min_val) / (max_val - min_val + 1e-8)  # (B,1,H,W)
+
+        # 转换形状为 (B,H,W,1)，符合DepthAttnProcessor预期
+        norm_depth = norm_depth.permute(0, 2, 3, 1).contiguous()
+
+        return norm_depth
+
+    else:
+        # np.array版本，类似逻辑
+        depth_gray = depth_map.mean(axis=1, keepdims=True)  # (B,1,H,W)
+        min_val = depth_gray.min(axis=(2,3), keepdims=True)
+        max_val = depth_gray.max(axis=(2,3), keepdims=True)
+        norm_depth = (depth_gray - min_val) / (max_val - min_val + 1e-8)
+        norm_depth = np.transpose(norm_depth, (0, 2, 3, 1))  # (B,H,W,1)
+        return norm_depth
+
+
 
 if __name__ == "__main__":
     # Test the functionality of the code
