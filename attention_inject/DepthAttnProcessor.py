@@ -19,6 +19,13 @@ class DepthAttnProcessor(AttnProcessor):
         *args,
         **kwargs,
     ):
+        print(f"hidden_states.shape: {hidden_states.shape}")
+        print(f"encoder_hidden_states.shape: {encoder_hidden_states.shape if encoder_hidden_states is not None else None}")
+        print(f"attention_mask.shape: {attention_mask.shape if attention_mask is not None else None}")
+        print(f"temb.shape: {temb.shape if temb is not None else None}")
+        print(f"depth_feat.shape: {depth_feat.shape if depth_feat is not None else None}")
+        print(f"depth_mask.shape: {depth_mask.shape if depth_mask is not None else None}")
+
         # residual连接备份
         residual = hidden_states
 
@@ -61,7 +68,7 @@ class DepthAttnProcessor(AttnProcessor):
         if attention_mask is not None:
             attn_weights = attn_weights + attention_mask
 
-        # ----------- 加入深度maskbias ------------
+        # ----------- 加入深度 ------------
 
         if depth_mask is not None:
             # depth_mask是(B, H, W, 1)，先reshape到(B, HW, 1)
