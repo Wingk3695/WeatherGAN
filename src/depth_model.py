@@ -36,19 +36,11 @@ class Pix2Pix_Turbo(torch.nn.Module):
         # 初始化改为使用自定义UNetWithDepth
         unet = UNetWithDepth.from_pretrained("stabilityai/sd-turbo", subfolder="unet")
 
-        # 替换上采样阶段AttentionProcessor为DepthAttnProcessor
-        # 假设DepthAttnProcessor的lambda_d和gamma_d可调
-        def is_upsample_processor(key: str) -> bool:
-            return "up_blocks" in key
-
+        # 避免错误信息，全部修改。
         new_processors = {}
         for k, v in unet.attn_processors.items():
-            if is_upsample_processor(k):
-                new_processors[k] = DepthAttnProcessor(lambda_d=5.0, gamma_d=1.0)
-            else:
-                new_processors[k] = v
+            new_processors[k] = DepthAttnProcessor(lambda_d=5.0, gamma_d=1.0)
         unet.set_attn_processor(new_processors)
-
         # 加载预训练权重和LoRA，如果有的话
         if pretrained_path is not None:
             sd = torch.load(pretrained_path, map_location="cpu")
