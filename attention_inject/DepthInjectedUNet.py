@@ -24,10 +24,10 @@ class UNetWithDepth(UNet2DConditionModel):
         cross_attention_kwargs = cross_attention_kwargs.copy() if cross_attention_kwargs is not None else {}
 
         # 把深度信息加入cross_attention_kwargs里
-        # if depth_feat is not None:
-        #     cross_attention_kwargs['depth_feat'] = depth_feat
-        # if depth_mask is not None:
-        #     cross_attention_kwargs['depth_mask'] = depth_mask
+        if depth_feat is not None:
+            cross_attention_kwargs['depth_feat'] = depth_feat
+        if depth_mask is not None:
+            cross_attention_kwargs['depth_mask'] = depth_mask
 
         # 调用父类forward，传入修改后的cross_attention_kwargs
         return super().forward(
