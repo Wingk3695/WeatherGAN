@@ -19,7 +19,7 @@ import wandb
 from cleanfid.fid import get_folder_features, build_feature_extractor, fid_from_feats
 
 from img2img_turbo.pix2pix_turbo import Pix2Pix_Turbo
-from training_utils import parse_args_paired_training
+from training_utils import parse_args_star_training
 from StarDataset import UnpairedStarDataset
 
 
@@ -180,17 +180,17 @@ def main(args):
                 x_src_idt = net_pix2pix(x_src, prompt_tokens=c_src, deterministic=True)       # 身份映射
 
                 # ====== 反向流程：tgt -> src ======
-                x_src_pred = net_pix2pix(x_tgt, prompt_tokens=c_src, deterministic=True)       # 目标图生成源域
-                x_tgt_rec = net_pix2pix(x_src_pred, prompt_tokens=c_tgt, deterministic=True)  # 循环回目标
-                x_tgt_idt = net_pix2pix(x_tgt, prompt_tokens=c_tgt, deterministic=True)       # 身份映射
+                # x_src_pred = net_pix2pix(x_tgt, prompt_tokens=c_src, deterministic=True)       # 目标图生成源域
+                # x_tgt_rec = net_pix2pix(x_src_pred, prompt_tokens=c_tgt, deterministic=True)  # 循环回目标
+                # x_tgt_idt = net_pix2pix(x_tgt, prompt_tokens=c_tgt, deterministic=True)       # 身份映射
 
                 # ====== 损失计算 ======
                 loss = 0.0
 
                 # 对抗损失 - 生成器
                 loss_gan_src2tgt = net_disc(x_tgt_pred, for_G=True).mean() * args.lambda_gan
-                loss_gan_tgt2src = net_disc(x_src_pred, for_G=True).mean() * args.lambda_gan
-                loss_gan = loss_gan_src2tgt + loss_gan_tgt2src
+                # loss_gan_tgt2src = net_disc(x_src_pred, for_G=True).mean() * args.lambda_gan
+                loss_gan = loss_gan_src2tgt # + loss_gan_tgt2src
                 loss += loss_gan
 
                 # CLIP风格相似度损失
@@ -205,26 +205,26 @@ def main(args):
                     loss_clipsim_src2tgt = (1 - clipsim_src2tgt.mean() / 100) * args.lambda_clipsim
 
                     # tgt->src方向CLIP损失
-                    x_src_pred_renorm = t_clip_renorm(x_src_pred * 0.5 + 0.5)
-                    x_src_pred_renorm = F.interpolate(x_src_pred_renorm, (224, 224),
-                                                    mode="bilinear",
-                                                    align_corners=False)
-                    clipsim_tgt2src, _ = net_clip(x_src_pred_renorm, c_src)
-                    loss_clipsim_tgt2src = (1 - clipsim_tgt2src.mean() / 100) * args.lambda_clipsim
+                    # x_src_pred_renorm = t_clip_renorm(x_src_pred * 0.5 + 0.5)
+                    # x_src_pred_renorm = F.interpolate(x_src_pred_renorm, (224, 224),
+                    #                                 mode="bilinear",
+                    #                                 align_corners=False)
+                    # clipsim_tgt2src, _ = net_clip(x_src_pred_renorm, c_src)
+                    # loss_clipsim_tgt2src = (1 - clipsim_tgt2src.mean() / 100) * args.lambda_clipsim
 
-                    loss_clipsim = loss_clipsim_src2tgt + loss_clipsim_tgt2src
+                    loss_clipsim = loss_clipsim_src2tgt #+ loss_clipsim_tgt2src
                     loss += loss_clipsim
 
                 # 循环一致性损失 (L1)
                 loss_cyc_src2tgt = F.l1_loss(x_src_rec, x_src) * args.lambda_cycle
-                loss_cyc_tgt2src = F.l1_loss(x_tgt_rec, x_tgt) * args.lambda_cycle
-                loss_cyc = loss_cyc_src2tgt + loss_cyc_tgt2src
+                # loss_cyc_tgt2src = F.l1_loss(x_tgt_rec, x_tgt) * args.lambda_cycle
+                loss_cyc = loss_cyc_src2tgt # + loss_cyc_tgt2src
                 loss += loss_cyc
 
                 # 身份映射损失 (L1)
                 loss_idt_src = F.l1_loss(x_src_idt, x_src) * args.lambda_idt
-                loss_idt_tgt = F.l1_loss(x_tgt_idt, x_tgt) * args.lambda_idt
-                loss_idt = loss_idt_src + loss_idt_tgt
+                # loss_idt_tgt = F.l1_loss(x_tgt_idt, x_tgt) * args.lambda_idt
+                loss_idt = loss_idt_src # + loss_idt_tgt
                 loss += loss_idt
 
                 # 反向传播并优化生成器参数
@@ -251,8 +251,8 @@ def main(args):
 
                 # 判别器生成图像loss
                 lossD_fake_src2tgt = net_disc(x_tgt_pred.detach(), for_real=False).mean() * args.lambda_gan
-                lossD_fake_tgt2src = net_disc(x_src_pred.detach(), for_real=False).mean() * args.lambda_gan
-                lossD_fake = lossD_fake_src2tgt + lossD_fake_tgt2src
+                # lossD_fake_tgt2src = net_disc(x_src_pred.detach(), for_real=False).mean() * args.lambda_gan
+                lossD_fake = lossD_fake_src2tgt # + lossD_fake_tgt2src
 
                 accelerator.backward(lossD_fake)
                 if accelerator.sync_gradients:
@@ -280,14 +280,33 @@ def main(args):
                     # 可视化示例图
                     if global_step % args.viz_freq == 1:
                         log_dict = {
-                            "train/source": [wandb.Image(x_src[idx].float().detach().cpu(), caption=f"idx={idx}") for idx in range(B)],
-                            "train/target": [wandb.Image(x_tgt[idx].float().detach().cpu(), caption=f"idx={idx}") for idx in range(B)],
-                            "train/src2tgt_output": [wandb.Image(x_tgt_pred[idx].float().detach().cpu(), caption=f"idx={idx}") for idx in range(B)],
-                            "train/src2tgt_cycle": [wandb.Image(x_src_rec[idx].float().detach().cpu(), caption=f"idx={idx}") for idx in range(B)],
-                            "train/src_identity": [wandb.Image(x_src_idt[idx].float().detach().cpu(), caption=f"idx={idx}") for idx in range(B)],
-                            "train/tgt2src_output": [wandb.Image(x_src_pred[idx].float().detach().cpu(), caption=f"idx={idx}") for idx in range(B)],
-                            "train/tgt2src_cycle": [wandb.Image(x_tgt_rec[idx].float().detach().cpu(), caption=f"idx={idx}") for idx in range(B)],
-                            "train/tgt_identity": [wandb.Image(x_tgt_idt[idx].float().detach().cpu(), caption=f"idx={idx}") for idx in range(B)],
+                            "train/source": [wandb.Image(
+                                x_src[idx].float().detach().cpu(),
+                                caption=f"idx={idx}, caption={batch['src_caption'][idx]}"
+                            ) for idx in range(B)],
+
+                            "train/target": [wandb.Image(
+                                x_tgt[idx].float().detach().cpu(),
+                                caption=f"idx={idx}, caption={batch['tgt_caption'][idx]}"
+                            ) for idx in range(B)],
+
+                            "train/src2tgt_output": [wandb.Image(
+                                x_tgt_pred[idx].float().detach().cpu(),
+                                caption=f"idx={idx}, caption={batch['tgt_caption'][idx]}"
+                            ) for idx in range(B)],
+
+                            "train/src2tgt_cycle": [wandb.Image(
+                                x_src_rec[idx].float().detach().cpu(),
+                                caption=f"idx={idx}, caption={batch['src_caption'][idx]}"
+                            ) for idx in range(B)],
+
+                            "train/src_identity": [wandb.Image(
+                                x_src_idt[idx].float().detach().cpu(),
+                                caption=f"idx={idx}, caption={batch['src_caption'][idx]}"
+                            ) for idx in range(B)],
+                            # "train/tgt2src_output": [wandb.Image(x_src_pred[idx].float().detach().cpu(), caption=f"idx={idx}") for idx in range(B)],
+                            # "train/tgt2src_cycle": [wandb.Image(x_tgt_rec[idx].float().detach().cpu(), caption=f"idx={idx}") for idx in range(B)],
+                            # "train/tgt_identity": [wandb.Image(x_tgt_idt[idx].float().detach().cpu(), caption=f"idx={idx}") for idx in range(B)],
                         }
                         for k in log_dict:
                             logs[k] = log_dict[k]
@@ -299,9 +318,10 @@ def main(args):
 
                     gc.collect()
                     torch.cuda.empty_cache()
+                accelerator.log(logs, step=global_step)
 
 
 
 if __name__ == "__main__":
-    args = parse_args_paired_training()
+    args = parse_args_star_training()
     main(args)

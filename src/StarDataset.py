@@ -10,26 +10,39 @@ def build_transform(image_prep):
         T = transforms.Compose([
             transforms.Resize(512, interpolation=transforms.InterpolationMode.LANCZOS),
             transforms.CenterCrop(512),
+            transforms.ToTensor(),   # 新增，转tensor
+            transforms.Normalize([0.5]*3, [0.5]*3),  # 归一化到[-1,1]
         ])
     elif image_prep == "resize_286_randomcrop_256x256_hflip":
         T = transforms.Compose([
             transforms.Resize((286, 286), interpolation=Image.LANCZOS),
             transforms.RandomCrop((256, 256)),
             transforms.RandomHorizontalFlip(),
+            transforms.ToTensor(),
+            transforms.Normalize([0.5]*3, [0.5]*3),
         ])
     elif image_prep in ["resize_256", "resize_256x256"]:
         T = transforms.Compose([
-            transforms.Resize((256, 256), interpolation=Image.LANCZOS)
+            transforms.Resize((256, 256), interpolation=Image.LANCZOS),
+            transforms.ToTensor(),
+            transforms.Normalize([0.5]*3, [0.5]*3),
         ])
     elif image_prep in ["resize_512", "resize_512x512"]:
         T = transforms.Compose([
-            transforms.Resize((512, 512), interpolation=Image.LANCZOS)
+            transforms.Resize((512, 512), interpolation=Image.LANCZOS),
+            transforms.ToTensor(),
+            transforms.Normalize([0.5]*3, [0.5]*3),
         ])
     elif image_prep == "no_resize":
-        T = transforms.Lambda(lambda x: x)
+        # 不变换图片，只转换为tensor并归一化
+        T = transforms.Compose([
+            transforms.ToTensor(),
+            transforms.Normalize([0.5]*3, [0.5]*3),
+        ])
     else:
         raise ValueError(f"Unknown image_prep: {image_prep}")
     return T
+
 
 
 class UnpairedStarDataset(torch.utils.data.Dataset):
