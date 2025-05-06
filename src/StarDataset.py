@@ -78,6 +78,9 @@ class UnpairedStarDataset(torch.utils.data.Dataset):
             attr = data.get("attributes", {})
             if any(attr.get(k, "").lower() == "undefined" for k in ["weather", "timeofday"]):
                 continue
+            # 新增：跳过 night
+            if attr.get("timeofday", "").lower() == "night":
+                continue
             # 构建自然语言描述
             desc = self._attributes_to_caption(attr)
             self.captions[img_name] = desc
@@ -91,13 +94,13 @@ class UnpairedStarDataset(torch.utils.data.Dataset):
     def _attributes_to_caption(self, attr):
         # 组合成简洁自然语言描述
         weather = attr.get("weather", "")
-        scene = attr.get("scene", "")
+        # scene = attr.get("scene", "")
         timeofday = attr.get("timeofday", "")
         parts = []
         if weather:
             parts.append(weather)
-        if scene:
-            parts.append(scene)
+        # if scene:
+        #     parts.append(scene)
         if timeofday:
             parts.append(timeofday)
         caption = " ".join(parts).strip()
