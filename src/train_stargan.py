@@ -262,71 +262,59 @@ def main(args):
                 optimizer_disc.step()
                 optimizer_disc.zero_grad(set_to_none=True)
 
-            # 日志及进度条更新
-                if accelerator.is_main_process:
-                    logs = {
-                        "loss_gan": loss_gan.detach().item(),
-                        "loss_clipsim": loss_clipsim.detach().item(),
-
-                        # 循环一致性各部分
-                        "loss_cyc_l1": loss_cyc_src2tgt_l1.detach().item(),
-                        "loss_cyc_lpips": loss_cyc_src2tgt_lpips.detach().item(),
-                        "loss_cyc_total": loss_cyc.detach().item(),
-
-                        # 身份映射各部分
-                        "loss_idt_l1": loss_idt_src_l1.detach().item(),
-                        "loss_idt_lpips": loss_idt_src_lpips.detach().item(),
-                        "loss_idt_total": loss_idt.detach().item(),
-
-                        "lossD_real": lossD_real.detach().item(),
-                        "lossD_fake": lossD_fake.detach().item(),
-                    }
-                    progress_bar.set_postfix(**logs)
-                    accelerator.log(logs, step=global_step)
-
-                    # 可视化示例图
-                    if global_step % args.viz_freq == 1:
-                        log_dict = {
-                            "train/source": [wandb.Image(
-                                x_src[idx].float().detach().cpu(),
-                                caption=f"idx={idx}, caption={batch['src_caption'][idx]}"
-                            ) for idx in range(B)],
-
-                            "train/target": [wandb.Image(
-                                x_tgt[idx].float().detach().cpu(),
-                                caption=f"idx={idx}, caption={batch['tgt_caption'][idx]}"
-                            ) for idx in range(B)],
-
-                            "train/src2tgt_output": [wandb.Image(
-                                x_tgt_pred[idx].float().detach().cpu(),
-                                caption=f"idx={idx}, caption={batch['tgt_caption'][idx]}"
-                            ) for idx in range(B)],
-
-                            "train/src2tgt_cycle": [wandb.Image(
-                                x_src_rec[idx].float().detach().cpu(),
-                                caption=f"idx={idx}, caption={batch['src_caption'][idx]}"
-                            ) for idx in range(B)],
-
-                            "train/src_identity": [wandb.Image(
-                                x_src_idt[idx].float().detach().cpu(),
-                                caption=f"idx={idx}, caption={batch['src_caption'][idx]}"
-                            ) for idx in range(B)],
-                            # "train/tgt2src_output": [wandb.Image(x_src_pred[idx].float().detach().cpu(), caption=f"idx={idx}") for idx in range(B)],
-                            # "train/tgt2src_cycle": [wandb.Image(x_tgt_rec[idx].float().detach().cpu(), caption=f"idx={idx}") for idx in range(B)],
-                            # "train/tgt_identity": [wandb.Image(x_tgt_idt[idx].float().detach().cpu(), caption=f"idx={idx}") for idx in range(B)],
-                        }
-                        for k in log_dict:
-                            logs[k] = log_dict[k]
-
-                    # 定期保存模型
-                    if global_step % args.checkpointing_steps == 1:
-                        outf = os.path.join(args.output_dir, "checkpoints", f"model_{global_step}.pkl")
-                        accelerator.unwrap_model(net_pix2pix).save_model(outf)
-
-                    gc.collect()
-                    torch.cuda.empty_cache()
+            # 日志及进度条更新（主循环每步都执行）
+            if accelerator.is_main_process:
+                logs = {
+                    "loss_gan": loss_gan.detach().item(),
+                    "loss_clipsim": loss_clipsim.detach().item(),
+                    "loss_cyc_l1": loss_cyc_src2tgt_l1.detach().item(),
+                    "loss_cyc_lpips": loss_cyc_src2tgt_lpips.detach().item(),
+                    "loss_cyc_total": loss_cyc.detach().item(),
+                    "loss_idt_l1": loss_idt_src_l1.detach().item(),
+                    "loss_idt_lpips": loss_idt_src_lpips.detach().item(),
+                    "loss_idt_total": loss_idt.detach().item(),
+                    "lossD_real": lossD_real.detach().item(),
+                    "lossD_fake": lossD_fake.detach().item(),
+                }
+                progress_bar.set_postfix(**logs)
                 accelerator.log(logs, step=global_step)
 
+                # 可视化上传
+                if global_step % args.viz_freq == 1:
+                    log_dict = {
+                        "train/source": [wandb.Image(
+                            x_src[idx].float().detach().cpu(),
+                            caption=f"idx={idx}, caption={batch['src_caption'][idx]}"
+                        ) for idx in range(B)],
+                        "train/target": [wandb.Image(
+                            x_tgt[idx].float().detach().cpu(),
+                            caption=f"idx={idx}, caption={batch['tgt_caption'][idx]}"
+                        ) for idx in range(B)],
+                        "train/src2tgt_output": [wandb.Image(
+                            x_tgt_pred[idx].float().detach().cpu(),
+                            caption=f"idx={idx}, caption={batch['tgt_caption'][idx]}"
+                        ) for idx in range(B)],
+                        "train/src2tgt_cycle": [wandb.Image(
+                            x_src_rec[idx].float().detach().cpu(),
+                            caption=f"idx={idx}, caption={batch['src_caption'][idx]}"
+                        ) for idx in range(B)],
+                        "train/src_identity": [wandb.Image(
+                            x_src_idt[idx].float().detach().cpu(),
+                            caption=f"idx={idx}, caption={batch['src_caption'][idx]}"
+                        ) for idx in range(B)],
+                    }
+                    for k in log_dict:
+                        logs[k] = log_dict[k]
+
+                # 定期保存模型
+                if global_step % args.checkpointing_steps == 1:
+                    outf = os.path.join(args.output_dir, "checkpoints", f"model_{global_step}.pkl")
+                    accelerator.unwrap_model(net_pix2pix).save_model(outf)
+
+                gc.collect()
+                torch.cuda.empty_cache()
+
+            global_step += 1  # 别忘了自增
 
 
 if __name__ == "__main__":
