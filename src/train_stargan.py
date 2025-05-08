@@ -215,16 +215,18 @@ def main(args):
                     loss_clipsim = loss_clipsim_src2tgt #+ loss_clipsim_tgt2src
                     loss += loss_clipsim
 
-                # 循环一致性损失 (L1)
-                loss_cyc_src2tgt = F.l1_loss(x_src_rec, x_src) * args.lambda_cycle
-                # loss_cyc_tgt2src = F.l1_loss(x_tgt_rec, x_tgt) * args.lambda_cycle
-                loss_cyc = loss_cyc_src2tgt # + loss_cyc_tgt2src
+                # 循环一致性损失
+                loss_cyc_src2tgt_l1 = F.l1_loss(x_src_rec, x_src) * args.lambda_l1
+                loss_cyc_src2tgt_lpips = net_lpips(x_src_rec, x_src).mean() * args.lambda_lpips
+                loss_cyc_src2tgt = loss_cyc_src2tgt_l1 + loss_cyc_src2tgt_lpips
+                loss_cyc = loss_cyc_src2tgt * args.lambda_cycle
                 loss += loss_cyc
 
-                # 身份映射损失 (L1)
-                loss_idt_src = F.l1_loss(x_src_idt, x_src) * args.lambda_idt
-                # loss_idt_tgt = F.l1_loss(x_tgt_idt, x_tgt) * args.lambda_idt
-                loss_idt = loss_idt_src # + loss_idt_tgt
+                # 身份映射损失
+                loss_idt_src_l1 = F.l1_loss(x_src_idt, x_src) * args.lambda_l1
+                loss_idt_src_lpips = net_lpips(x_src_idt, x_src).mean() * args.lambda_lpips
+                loss_idt_src = loss_idt_src_l1 + loss_idt_src_lpips
+                loss_idt = loss_idt_src * args.lambda_idt
                 loss += loss_idt
 
                 # 反向传播并优化生成器参数
@@ -261,16 +263,21 @@ def main(args):
                 optimizer_disc.zero_grad(set_to_none=True)
 
             # 日志及进度条更新
-            if accelerator.sync_gradients:
-                progress_bar.update(1)
-                global_step += 1
-
                 if accelerator.is_main_process:
                     logs = {
                         "loss_gan": loss_gan.detach().item(),
                         "loss_clipsim": loss_clipsim.detach().item(),
-                        "loss_cyc": loss_cyc.detach().item(),
-                        "loss_idt": loss_idt.detach().item(),
+
+                        # 循环一致性各部分
+                        "loss_cyc_l1": loss_cyc_src2tgt_l1.detach().item(),
+                        "loss_cyc_lpips": loss_cyc_src2tgt_lpips.detach().item(),
+                        "loss_cyc_total": loss_cyc.detach().item(),
+
+                        # 身份映射各部分
+                        "loss_idt_l1": loss_idt_src_l1.detach().item(),
+                        "loss_idt_lpips": loss_idt_src_lpips.detach().item(),
+                        "loss_idt_total": loss_idt.detach().item(),
+
                         "lossD_real": lossD_real.detach().item(),
                         "lossD_fake": lossD_fake.detach().item(),
                     }

@@ -191,10 +191,12 @@ def parse_args_star_training(input_args=None):
     # args for the loss function
     parser.add_argument("--gan_disc_type", default="vagan_clip")
     parser.add_argument("--gan_loss_type", default="multilevel_sigmoid_s")
-    parser.add_argument("--lambda_gan", default=2, type=float)
+    parser.add_argument("--lambda_gan", default=1, type=float)
     parser.add_argument("--lambda_clipsim", default=5, type=float)
-    parser.add_argument("--lambda_cycle", default=2, type=float)
-    parser.add_argument("--lambda_idt", default=2, type=float)
+    parser.add_argument("--lambda_cycle", default=1, type=float)
+    parser.add_argument("--lambda_idt", default=1, type=float)
+    parser.add_argument("--lambda_lpips", default=5, type=float)
+    parser.add_argument("--lambda_l1", default=1.0, type=float)
 
     # dataset options
     parser.add_argument("--dataset_folder", required=True, type=str)
