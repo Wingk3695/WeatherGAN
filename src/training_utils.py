@@ -195,8 +195,8 @@ def parse_args_star_training(input_args=None):
     parser.add_argument("--lambda_clipsim", default=5, type=float)
     parser.add_argument("--lambda_cycle", default=1, type=float)
     parser.add_argument("--lambda_idt", default=1, type=float)
-    parser.add_argument("--lambda_lpips", default=4, type=float)
-    parser.add_argument("--lambda_l1", default=2, type=float)
+    parser.add_argument("--lambda_lpips", default=2, type=float)
+    parser.add_argument("--lambda_l1", default=1, type=float)
 
     # dataset options
     parser.add_argument("--dataset_folder", required=True, type=str)
@@ -226,7 +226,7 @@ def parse_args_star_training(input_args=None):
     parser.add_argument("--resolution", type=int, default=512,)
     parser.add_argument("--train_batch_size", type=int, default=4, help="Batch size (per device) for the training dataloader.")
     parser.add_argument("--num_training_epochs", type=int, default=1)
-    parser.add_argument("--max_train_steps", type=int, default=100,)
+    parser.add_argument("--max_train_steps", type=int, default=25000,)
     parser.add_argument("--checkpointing_steps", type=int, default=500,)
     parser.add_argument("--gradient_accumulation_steps", type=int, default=1, help="Number of updates steps to accumulate before performing a backward/update pass.",)
     parser.add_argument("--gradient_checkpointing", action="store_true",)
