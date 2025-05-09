@@ -195,24 +195,18 @@ def main(args):
 
                 # CLIP风格相似度损失
                 loss_clipsim = torch.tensor(0., device=accelerator.device)
+                def get_clip_img_embeds(net_clip, img_tensor):
+                    # img_tensor: (B, C, H, W), 归一化到[0,1]，resize到224x224
+                    img = F.interpolate(img_tensor, (224, 224), mode="bilinear", align_corners=False)
+                    img = (img - 0.48145466) / 0.26862954  # 简单归一化，或用你已有的t_clip_renorm
+                    return net_clip.encode_image(img)
                 if args.lambda_clipsim > 0:
-                    # src->tgt方向CLIP损失
-                    x_tgt_pred_renorm = t_clip_renorm(x_tgt_pred * 0.5 + 0.5)
-                    x_tgt_pred_renorm = F.interpolate(x_tgt_pred_renorm, (224, 224),
-                                                    mode="bilinear",
-                                                    align_corners=False)
-                    clipsim_src2tgt, _ = net_clip(x_tgt_pred_renorm, c_tgt)
-                    loss_clipsim_src2tgt = (1 - clipsim_src2tgt.mean() / 100) * args.lambda_clipsim
-
-                    # tgt->src方向CLIP损失
-                    # x_src_pred_renorm = t_clip_renorm(x_src_pred * 0.5 + 0.5)
-                    # x_src_pred_renorm = F.interpolate(x_src_pred_renorm, (224, 224),
-                    #                                 mode="bilinear",
-                    #                                 align_corners=False)
-                    # clipsim_tgt2src, _ = net_clip(x_src_pred_renorm, c_src)
-                    # loss_clipsim_tgt2src = (1 - clipsim_tgt2src.mean() / 100) * args.lambda_clipsim
-
-                    loss_clipsim = loss_clipsim_src2tgt #+ loss_clipsim_tgt2src
+                    # 生成图像与目标图像的CLIP特征
+                    clip_emb_pred = get_clip_img_embeds(net_clip, x_tgt_pred * 0.5 + 0.5)
+                    clip_emb_tgt = get_clip_img_embeds(net_clip, x_tgt * 0.5 + 0.5)
+                    # 计算cosine相似度loss
+                    loss_clipsim_img = (1 - F.cosine_similarity(clip_emb_pred, clip_emb_tgt, dim=-1).mean()) * args.lambda_clipsim
+                    loss_clipsim = loss_clipsim_img
                     loss += loss_clipsim
 
                 # 循环一致性损失
