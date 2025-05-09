@@ -195,8 +195,8 @@ def parse_args_star_training(input_args=None):
     parser.add_argument("--lambda_clipsim", default=5, type=float)
     parser.add_argument("--lambda_cycle", default=1, type=float)
     parser.add_argument("--lambda_idt", default=1, type=float)
-    parser.add_argument("--lambda_lpips", default=5, type=float)
-    parser.add_argument("--lambda_l1", default=1.0, type=float)
+    parser.add_argument("--lambda_lpips", default=4, type=float)
+    parser.add_argument("--lambda_l1", default=2, type=float)
 
     # dataset options
     parser.add_argument("--dataset_folder", required=True, type=str)
