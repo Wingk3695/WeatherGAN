@@ -200,7 +200,7 @@ def main(args):
                 def get_clip_img_embeds(net_clip, img_tensor):
                     # img_tensor: (B, C, H, W), 归一化到[0,1]，resize到224x224
                     img = F.interpolate(img_tensor, (224, 224), mode="bilinear", align_corners=False)
-                    img = (img - 0.48145466) / 0.26862954  # 简单归一化，或用你已有的t_clip_renorm
+                    img = t_clip_renorm(img)
                     return net_clip.encode_image(img)
                 if args.lambda_clipsim > 0:
                     # 生成图像与目标图像的CLIP特征
