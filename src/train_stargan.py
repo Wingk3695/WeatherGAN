@@ -165,6 +165,8 @@ def main(args):
     # 主训练循环
     for epoch in range(args.num_training_epochs):
         for step, batch in enumerate(dl_train):
+            if global_step >= args.max_train_steps:
+                break
             with accelerator.accumulate(net_pix2pix, net_disc):
                 # 1) 读取数据
                 x_src = batch["src_image"].to(device=accelerator.device, dtype=weight_dtype)
@@ -324,7 +326,8 @@ def main(args):
                     gc.collect()
                     torch.cuda.empty_cache()
                 accelerator.log(logs, step=global_step)
-
+        if epoch == args.num_training_epochs:
+            break
 
 
 if __name__ == "__main__":
