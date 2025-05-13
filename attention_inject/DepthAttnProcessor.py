@@ -129,6 +129,9 @@ class DepthAttnProcessor(AttnProcessor):
         if k_depth is not None:
             attn_logits_depth = torch.bmm(query, k_depth.transpose(1, 2)) * scale
             debug_print(f"attn_logits_depth shape: {attn_logits_depth.shape}")
+            if depth_mask_proc is not None:
+                attn_logits_depth = attn_logits_depth + self.lambda_d * depth_mask_proc
+                
 
         if attention_mask is not None:
             attn_logits = attn_logits.masked_fill(~attention_mask.bool(), float('-1e9'))
