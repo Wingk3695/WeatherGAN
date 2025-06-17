@@ -4,7 +4,7 @@ from PIL import Image
 import numpy as np
 import torchvision.transforms as T
 
-from depth_model import Pix2Pix_Turbo
+from src.depth_model import Pix2Pix_Turbo
 from attention_inject.DepthEmbedding import get_embeddings_from_convNext, get_normalized_depth_map
 from ConvNeXt.convNeXt.convNext import ConvNeXt
 
